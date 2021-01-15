@@ -28,15 +28,9 @@ import com.alibaba.druid.stat.TableStat.Name;
 import com.alibaba.druid.util.JdbcConstants;
 import fd.ng.core.exception.BusinessSystemException;
 import fd.ng.core.utils.StringUtil;
-import fd.ng.db.conf.Dbtype;
 import fd.ng.db.jdbc.DatabaseWrapper;
-import fd.ng.db.jdbc.SqlOperator;
-import hrds.commons.codes.TableStorage;
-import hrds.commons.entity.Dm_datatable;
-import hrds.commons.entity.Dm_operation_info;
 import hrds.commons.exception.AppSystemException;
 import hrds.commons.exception.BusinessException;
-import org.apache.calcite.sql.SqlBinaryOperator;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.*;
@@ -815,41 +809,17 @@ public class DruidParseQuerySql {
 	}
 
 	/**
-	 * 判断视图
-	 */
-	public String GetNewSql(String sql) {
-		DbType dbType = JdbcConstants.ORACLE;
-//		List<String> sqllist = new ArrayList<>();
-		HashMap<String, String> viewMap = new HashMap<>();
-		List<SQLStatement> stmtList = SQLUtils.parseStatements(sql, dbType);
-		try (DatabaseWrapper db = new DatabaseWrapper()) {
-			for (SQLStatement stmt : stmtList) {
-				SQLSelectStatement sqlSelectStatement = (SQLSelectStatement) stmt;
-				SQLSelect sqlSelect = sqlSelectStatement.getSelect();
-				SQLSelectQuery sqlSelectQuery = sqlSelect.getQuery();
-				setFrom(sqlSelectQuery, db, viewMap);
-//				sqllist.add(sqlSelectQuery.toString());
-			}
-		}
-		for (String key : viewMap.keySet()) {
-			sql = sql.replaceAll(key, viewMap.get(key));
-		}
-		return sql;
-
-	}
-
-	/**
 	 * 遍历每一个query的部分用以获取from
 	 */
-	private void setFrom(SQLSelectQuery sqlSelectQuery, DatabaseWrapper db, HashMap<String, String> viewMap) {
+	private void setFrom(SQLSelectQuery sqlSelectQuery, DatabaseWrapper db) {
 		if (sqlSelectQuery instanceof SQLUnionQuery) {
 			SQLUnionQuery sqlUnionQuery = (SQLUnionQuery) sqlSelectQuery;
-			setFrom(sqlUnionQuery.getLeft(), db, viewMap);
-			setFrom(sqlUnionQuery.getRight(), db, viewMap);
+			setFrom(sqlUnionQuery.getLeft(), db);
+			setFrom(sqlUnionQuery.getRight(), db);
 			// 因为选择的是oracle的datatype 所以只考虑unionquery和oraclequeryblock这两种
 		} else if (sqlSelectQuery instanceof OracleSelectQueryBlock) {
 			OracleSelectQueryBlock oracleSelectQueryBlock = (OracleSelectQueryBlock) sqlSelectQuery;
-			handleSetFrom(oracleSelectQueryBlock.getFrom(), db, viewMap);
+			handleSetFrom(oracleSelectQueryBlock.getFrom(), db);
 		} else {
 			String message;
 			if (sqlSelectQuery == null) {
@@ -864,31 +834,26 @@ public class DruidParseQuerySql {
 	/**
 	 * 拆分from 直至单表
 	 */
-	private void handleSetFrom(SQLTableSource sqlTableSource, DatabaseWrapper db, HashMap<String, String> viewMap) {
+	private void handleSetFrom(SQLTableSource sqlTableSource, DatabaseWrapper db) {
 		// 如果是join的形式 就递归继续拆分
 		if (sqlTableSource instanceof OracleSelectJoin) {
 			OracleSelectJoin oracleSelectJoin = (OracleSelectJoin) sqlTableSource;
-			handleSetFrom(oracleSelectJoin.getLeft(), db, viewMap);
-			handleSetFrom(oracleSelectJoin.getRight(), db, viewMap);
+			handleSetFrom(oracleSelectJoin.getLeft(), db);
+			handleSetFrom(oracleSelectJoin.getRight(), db);
 		}
 		// 如果是子查询，继续拆分from
 		else if (sqlTableSource instanceof OracleSelectSubqueryTableSource) {
 			OracleSelectSubqueryTableSource oracleSelectSubqueryTableSource = (OracleSelectSubqueryTableSource) sqlTableSource;
 			SQLSelect sqlSelect = oracleSelectSubqueryTableSource.getSelect();
 			SQLSelectQuery sqlSelectQuery = sqlSelect.getQuery();
-			setFrom(sqlSelectQuery, db, viewMap);
+			setFrom(sqlSelectQuery, db);
 		} else if (sqlTableSource instanceof OracleSelectTableReference) {
 			OracleSelectTableReference oracleSelectTableReference = (OracleSelectTableReference) sqlTableSource;
 			String tablename = oracleSelectTableReference.getExpr().toString();
-			List<Map<String, Object>> maps = SqlOperator.queryList(db,
-					"select t2.execute_sql from " + Dm_datatable.TableName + " t1 left join " + Dm_operation_info.TableName +
-							" t2 on t1.datatable_id = t2.datatable_id where lower(t1.datatable_en_name) = ? and t1.table_storage = ?",
-					tablename.toLowerCase(), TableStorage.ShuJuShiTu.getCode());
-			if (!maps.isEmpty()) {
-				String execute_sql = maps.get(0).get("execute_sql").toString();
-//				oracleSelectTableReference.setExpr(" ( " + execute_sql + " ) " + tablename);
-				viewMap.put(tablename, " ( " + execute_sql + " ) " + tablename);
-			}
+//			//TODO
+			//这里要把 要改的 from 部分修改了
+			//String execute_sql = "";
+			//oracleSelectTableReference.setExpr(" ( "+execute_sql+" ) "+tablename);
 		} else {
 			String message;
 			if (sqlTableSource == null) {
